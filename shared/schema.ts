@@ -5,7 +5,44 @@ import { z } from "zod";
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
+  email: text("email").notNull().unique(),
   password: text("password").notNull(),
+  lastKnownIp: text("last_known_ip"),
+  isLocked: boolean("is_locked").default(false),
+  failedAttempts: integer("failed_attempts").default(0),
+  lastLoginAt: timestamp("last_login_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const loginAttempts = pgTable("login_attempts", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  ipAddress: text("ip_address").notNull(),
+  success: boolean("success").notNull(),
+  attemptedAt: timestamp("attempted_at").notNull().defaultNow(),
+});
+
+export const verificationCodes = pgTable("verification_codes", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  code: text("code").notNull(),
+  type: text("type").notNull(), // "ip_verification", "password_reset"
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const connectedDevices = pgTable("connected_devices", {
+  id: serial("id").primaryKey(),
+  deviceName: text("device_name").notNull(),
+  ownerName: text("owner_name").notNull(),
+  deviceType: text("device_type").notNull(), // "desktop", "laptop", "server", "mobile"
+  ipAddress: text("ip_address").notNull(),
+  macAddress: text("mac_address"),
+  operatingSystem: text("operating_system"),
+  status: text("status").notNull().default("active"), // "active", "inactive", "quarantined"
+  lastSeen: timestamp("last_seen").notNull().defaultNow(),
+  connectedAt: timestamp("connected_at").notNull().defaultNow(),
 });
 
 export const threats = pgTable("threats", {
@@ -65,11 +102,35 @@ export const insertSecurityConfigSchema = createInsertSchema(securityConfig).omi
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
+  email: true,
   password: true,
+});
+
+export const insertLoginAttemptSchema = createInsertSchema(loginAttempts).omit({
+  id: true,
+  attemptedAt: true,
+});
+
+export const insertVerificationCodeSchema = createInsertSchema(verificationCodes).omit({
+  id: true,
+  createdAt: true,
+  used: true,
+});
+
+export const insertConnectedDeviceSchema = createInsertSchema(connectedDevices).omit({
+  id: true,
+  lastSeen: true,
+  connectedAt: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type LoginAttempt = typeof loginAttempts.$inferSelect;
+export type InsertLoginAttempt = z.infer<typeof insertLoginAttemptSchema>;
+export type VerificationCode = typeof verificationCodes.$inferSelect;
+export type InsertVerificationCode = z.infer<typeof insertVerificationCodeSchema>;
+export type ConnectedDevice = typeof connectedDevices.$inferSelect;
+export type InsertConnectedDevice = z.infer<typeof insertConnectedDeviceSchema>;
 export type Threat = typeof threats.$inferSelect;
 export type InsertThreat = z.infer<typeof insertThreatSchema>;
 export type ScannedFile = typeof scannedFiles.$inferSelect;

@@ -1,15 +1,45 @@
 import { 
-  users, threats, scannedFiles, systemEvents, securityConfig,
+  users, threats, scannedFiles, systemEvents, securityConfig, loginAttempts, verificationCodes, connectedDevices,
   type User, type InsertUser, type Threat, type InsertThreat,
   type ScannedFile, type InsertScannedFile, type SystemEvent, type InsertSystemEvent,
-  type SecurityConfig, type InsertSecurityConfig
+  type SecurityConfig, type InsertSecurityConfig, type LoginAttempt, type InsertLoginAttempt,
+  type VerificationCode, type InsertVerificationCode, type ConnectedDevice, type InsertConnectedDevice
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
+import session from "express-session";
+import connectPg from "connect-pg-simple";
+import { pool } from "./db";
 
 export interface IStorage {
+  sessionStore: session.Store;
+  
   // Users
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserLogin(id: number, ipAddress: string): Promise<User | undefined>;
+  lockUser(id: number): Promise<void>;
+  unlockUser(id: number): Promise<void>;
+  incrementFailedAttempts(id: number): Promise<void>;
+  resetFailedAttempts(id: number): Promise<void>;
+  updatePassword(id: number, newPassword: string): Promise<void>;
+  
+  // Login Attempts
+  createLoginAttempt(attempt: InsertLoginAttempt): Promise<LoginAttempt>;
+  getRecentLoginAttempts(email: string, minutes: number): Promise<LoginAttempt[]>;
+  
+  // Verification Codes
+  createVerificationCode(code: InsertVerificationCode): Promise<VerificationCode>;
+  getValidVerificationCode(email: string, code: string, type: string): Promise<VerificationCode | undefined>;
+  markCodeAsUsed(id: number): Promise<void>;
+  
+  // Connected Devices
+  getConnectedDevices(): Promise<ConnectedDevice[]>;
+  createConnectedDevice(device: InsertConnectedDevice): Promise<ConnectedDevice>;
+  updateDeviceLastSeen(id: number): Promise<void>;
+  updateDeviceStatus(id: number, status: string): Promise<ConnectedDevice | undefined>;
   
   // Threats
   getThreats(): Promise<Threat[]>;
@@ -39,237 +69,311 @@ export interface IStorage {
   }>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private threats: Map<number, Threat>;
-  private scannedFiles: Map<number, ScannedFile>;
-  private systemEvents: Map<number, SystemEvent>;
-  private securityConfig: Map<string, SecurityConfig>;
-  private currentId: number;
+const PostgresSessionStore = connectPg(session);
+
+export class DatabaseStorage implements IStorage {
+  public sessionStore: session.Store;
 
   constructor() {
-    this.users = new Map();
-    this.threats = new Map();
-    this.scannedFiles = new Map();
-    this.systemEvents = new Map();
-    this.securityConfig = new Map();
-    this.currentId = 1;
-    
-    // Initialize with some sample configuration
-    this.initializeData();
-  }
-
-  private initializeData() {
-    // Initialize security configuration
-    const configs = [
-      { service: "firewall", status: "active" },
-      { service: "antivirus", status: "active" },
-      { service: "updates", status: "scheduled" },
-      { service: "access", status: "restricted" }
-    ];
-    
-    configs.forEach(config => {
-      const securityConfig: SecurityConfig = {
-        id: this.currentId++,
-        service: config.service,
-        status: config.status,
-        lastUpdated: new Date()
-      };
-      this.securityConfig.set(config.service, securityConfig);
-    });
-
-    // Add some initial threats for demo
-    const initialThreats = [
-      {
-        name: "Malware Trojan.Win32.Agent",
-        type: "malware",
-        severity: "critical",
-        status: "active",
-        location: "/home/user/downloads/suspicious.exe"
-      },
-      {
-        name: "Actividad de Red Sospechosa",
-        type: "network",
-        severity: "medium",
-        status: "investigating",
-        location: "IP: 192.168.1.105"
-      },
-      {
-        name: "Amenaza Neutralizada",
-        type: "malware",
-        severity: "high",
-        status: "resolved",
-        location: "Archivo eliminado exitosamente"
-      }
-    ];
-
-    initialThreats.forEach(threat => {
-      const threatObj: Threat = {
-        id: this.currentId++,
-        ...threat,
-        detectedAt: new Date(Date.now() - Math.random() * 1000 * 60 * 60),
-        resolvedAt: threat.status === "resolved" ? new Date() : null
-      };
-      this.threats.set(threatObj.id, threatObj);
-    });
-
-    // Add some initial scanned files
-    const initialFiles = [
-      { filename: "document.pdf", fileSize: 2457600, scanStatus: "clean" },
-      { filename: "archive.zip", fileSize: 16777216, scanStatus: "scanning" },
-      { filename: "script.exe", fileSize: 5242880, scanStatus: "infected", threatFound: "Trojan.Generic" }
-    ];
-
-    initialFiles.forEach(file => {
-      const fileObj: ScannedFile = {
-        id: this.currentId++,
-        ...file,
-        scannedAt: new Date(Date.now() - Math.random() * 1000 * 60 * 60),
-        threatFound: file.threatFound || null
-      };
-      this.scannedFiles.set(fileObj.id, fileObj);
-    });
-
-    // Add some initial system events
-    const initialEvents = [
-      { type: "security", message: "Intento de acceso no autorizado", severity: "high" },
-      { type: "firewall", message: "Firewall bloqueó conexión", severity: "medium" },
-      { type: "update", message: "Actualización de seguridad aplicada", severity: "low" },
-      { type: "threat", message: "Malware detectado y eliminado", severity: "high" },
-      { type: "scan", message: "Escaneo programado completado", severity: "low" }
-    ];
-
-    initialEvents.forEach(event => {
-      const eventObj: SystemEvent = {
-        id: this.currentId++,
-        ...event,
-        timestamp: new Date(Date.now() - Math.random() * 1000 * 60 * 60)
-      };
-      this.systemEvents.set(eventObj.id, eventObj);
+    this.sessionStore = new PostgresSessionStore({ 
+      pool, 
+      createTableIfMissing: true 
     });
   }
 
+  // Users
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.username === username);
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentId++;
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db
+      .insert(users)
+      .values({
+        ...insertUser,
+        isLocked: false,
+        failedAttempts: 0,
+        createdAt: new Date()
+      })
+      .returning();
     return user;
   }
 
+  async updateUserLogin(id: number, ipAddress: string): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({
+        lastKnownIp: ipAddress,
+        lastLoginAt: new Date()
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return user || undefined;
+  }
+
+  async lockUser(id: number): Promise<void> {
+    await db
+      .update(users)
+      .set({ isLocked: true })
+      .where(eq(users.id, id));
+  }
+
+  async unlockUser(id: number): Promise<void> {
+    await db
+      .update(users)
+      .set({ isLocked: false, failedAttempts: 0 })
+      .where(eq(users.id, id));
+  }
+
+  async incrementFailedAttempts(id: number): Promise<void> {
+    await db
+      .update(users)
+      .set({ failedAttempts: sql`${users.failedAttempts} + 1` })
+      .where(eq(users.id, id));
+  }
+
+  async resetFailedAttempts(id: number): Promise<void> {
+    await db
+      .update(users)
+      .set({ failedAttempts: 0 })
+      .where(eq(users.id, id));
+  }
+
+  async updatePassword(id: number, newPassword: string): Promise<void> {
+    await db
+      .update(users)
+      .set({ password: newPassword })
+      .where(eq(users.id, id));
+  }
+
+  // Login Attempts
+  async createLoginAttempt(attempt: InsertLoginAttempt): Promise<LoginAttempt> {
+    const [loginAttempt] = await db
+      .insert(loginAttempts)
+      .values(attempt)
+      .returning();
+    return loginAttempt;
+  }
+
+  async getRecentLoginAttempts(email: string, minutes: number): Promise<LoginAttempt[]> {
+    const cutoffTime = new Date(Date.now() - minutes * 60 * 1000);
+    return await db
+      .select()
+      .from(loginAttempts)
+      .where(
+        and(
+          eq(loginAttempts.email, email),
+          gte(loginAttempts.attemptedAt, cutoffTime)
+        )
+      )
+      .orderBy(desc(loginAttempts.attemptedAt));
+  }
+
+  // Verification Codes
+  async createVerificationCode(code: InsertVerificationCode): Promise<VerificationCode> {
+    const [verificationCode] = await db
+      .insert(verificationCodes)
+      .values({
+        ...code,
+        createdAt: new Date(),
+        used: false
+      })
+      .returning();
+    return verificationCode;
+  }
+
+  async getValidVerificationCode(email: string, code: string, type: string): Promise<VerificationCode | undefined> {
+    const [verificationCode] = await db
+      .select()
+      .from(verificationCodes)
+      .where(
+        and(
+          eq(verificationCodes.email, email),
+          eq(verificationCodes.code, code),
+          eq(verificationCodes.type, type),
+          eq(verificationCodes.used, false),
+          gte(verificationCodes.expiresAt, new Date())
+        )
+      );
+    return verificationCode || undefined;
+  }
+
+  async markCodeAsUsed(id: number): Promise<void> {
+    await db
+      .update(verificationCodes)
+      .set({ used: true })
+      .where(eq(verificationCodes.id, id));
+  }
+
+  // Connected Devices
+  async getConnectedDevices(): Promise<ConnectedDevice[]> {
+    return await db
+      .select()
+      .from(connectedDevices)
+      .orderBy(desc(connectedDevices.lastSeen));
+  }
+
+  async createConnectedDevice(device: InsertConnectedDevice): Promise<ConnectedDevice> {
+    const [connectedDevice] = await db
+      .insert(connectedDevices)
+      .values({
+        ...device,
+        lastSeen: new Date(),
+        connectedAt: new Date()
+      })
+      .returning();
+    return connectedDevice;
+  }
+
+  async updateDeviceLastSeen(id: number): Promise<void> {
+    await db
+      .update(connectedDevices)
+      .set({ lastSeen: new Date() })
+      .where(eq(connectedDevices.id, id));
+  }
+
+  async updateDeviceStatus(id: number, status: string): Promise<ConnectedDevice | undefined> {
+    const [device] = await db
+      .update(connectedDevices)
+      .set({ status })
+      .where(eq(connectedDevices.id, id))
+      .returning();
+    return device || undefined;
+  }
+
+  // Threats
   async getThreats(): Promise<Threat[]> {
-    return Array.from(this.threats.values()).sort((a, b) => 
-      new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime()
-    );
+    return await db
+      .select()
+      .from(threats)
+      .orderBy(desc(threats.detectedAt));
   }
 
   async getThreat(id: number): Promise<Threat | undefined> {
-    return this.threats.get(id);
+    const [threat] = await db.select().from(threats).where(eq(threats.id, id));
+    return threat || undefined;
   }
 
   async createThreat(insertThreat: InsertThreat): Promise<Threat> {
-    const id = this.currentId++;
-    const threat: Threat = {
-      ...insertThreat,
-      id,
-      detectedAt: new Date(),
-      resolvedAt: null
-    };
-    this.threats.set(id, threat);
+    const [threat] = await db
+      .insert(threats)
+      .values({
+        ...insertThreat,
+        detectedAt: new Date(),
+        resolvedAt: null
+      })
+      .returning();
     return threat;
   }
 
   async updateThreatStatus(id: number, status: string, resolvedAt?: Date): Promise<Threat | undefined> {
-    const threat = this.threats.get(id);
-    if (threat) {
-      threat.status = status;
-      if (resolvedAt) {
-        threat.resolvedAt = resolvedAt;
-      }
-      this.threats.set(id, threat);
-    }
-    return threat;
+    const [threat] = await db
+      .update(threats)
+      .set({
+        status,
+        ...(resolvedAt && { resolvedAt })
+      })
+      .where(eq(threats.id, id))
+      .returning();
+    return threat || undefined;
   }
 
+  // Scanned Files
   async getScannedFiles(): Promise<ScannedFile[]> {
-    return Array.from(this.scannedFiles.values()).sort((a, b) => 
-      new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime()
-    );
+    return await db
+      .select()
+      .from(scannedFiles)
+      .orderBy(desc(scannedFiles.scannedAt));
   }
 
   async createScannedFile(insertFile: InsertScannedFile): Promise<ScannedFile> {
-    const id = this.currentId++;
-    const file: ScannedFile = {
-      ...insertFile,
-      id,
-      scannedAt: new Date(),
-      threatFound: null
-    };
-    this.scannedFiles.set(id, file);
+    const [file] = await db
+      .insert(scannedFiles)
+      .values({
+        ...insertFile,
+        scannedAt: new Date(),
+        threatFound: null
+      })
+      .returning();
     return file;
   }
 
   async updateFileStatus(id: number, status: string, threatFound?: string): Promise<ScannedFile | undefined> {
-    const file = this.scannedFiles.get(id);
-    if (file) {
-      file.scanStatus = status;
-      if (threatFound) {
-        file.threatFound = threatFound;
-      }
-      this.scannedFiles.set(id, file);
-    }
-    return file;
+    const [file] = await db
+      .update(scannedFiles)
+      .set({
+        scanStatus: status,
+        ...(threatFound && { threatFound })
+      })
+      .where(eq(scannedFiles.id, id))
+      .returning();
+    return file || undefined;
   }
 
+  // System Events
   async getSystemEvents(limit: number = 50): Promise<SystemEvent[]> {
-    return Array.from(this.systemEvents.values())
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, limit);
+    return await db
+      .select()
+      .from(systemEvents)
+      .orderBy(desc(systemEvents.timestamp))
+      .limit(limit);
   }
 
   async createSystemEvent(insertEvent: InsertSystemEvent): Promise<SystemEvent> {
-    const id = this.currentId++;
-    const event: SystemEvent = {
-      ...insertEvent,
-      id,
-      timestamp: new Date()
-    };
-    this.systemEvents.set(id, event);
+    const [event] = await db
+      .insert(systemEvents)
+      .values({
+        ...insertEvent,
+        timestamp: new Date()
+      })
+      .returning();
     return event;
   }
 
+  // Security Config
   async getSecurityConfig(): Promise<SecurityConfig[]> {
-    return Array.from(this.securityConfig.values());
+    return await db.select().from(securityConfig);
   }
 
   async updateSecurityConfig(service: string, status: string): Promise<SecurityConfig | undefined> {
-    const config = this.securityConfig.get(service);
-    if (config) {
-      config.status = status;
-      config.lastUpdated = new Date();
-      this.securityConfig.set(service, config);
-    }
-    return config;
+    const [config] = await db
+      .update(securityConfig)
+      .set({
+        status,
+        lastUpdated: new Date()
+      })
+      .where(eq(securityConfig.service, service))
+      .returning();
+    return config || undefined;
   }
 
+  // Dashboard Stats
   async getDashboardStats(): Promise<{
     protectedSystems: number;
     threatsDetected: number;
     scansCompleted: number;
     securityLevel: number;
   }> {
-    const activeThreats = Array.from(this.threats.values()).filter(t => t.status === "active").length;
-    const totalScans = this.scannedFiles.size;
+    const allThreats = await db.select().from(threats);
+    const allFiles = await db.select().from(scannedFiles);
+    const devices = await db.select().from(connectedDevices);
+    
+    const activeThreats = allThreats.filter(t => t.status === "active").length;
+    const totalScans = allFiles.length;
     
     return {
-      protectedSystems: 247,
+      protectedSystems: devices.length || 247,
       threatsDetected: activeThreats,
       scansCompleted: totalScans,
       securityLevel: Math.max(70, 100 - (activeThreats * 5))
@@ -277,4 +381,4 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
