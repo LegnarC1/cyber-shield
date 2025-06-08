@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(210, 20%, 98%);
+  --foreground: hsl(215, 25%, 27%);
+  --muted: hsl(210, 40%, 96%);
+  --muted-foreground: hsl(215, 16%, 47%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(215, 25%, 27%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(215, 25%, 27%);
+  --border: hsl(214, 32%, 91%);
+  --input: hsl(214, 32%, 91%);
+  --primary: hsl(210, 79%, 46%);
+  --primary-foreground: hsl(210, 20%, 98%);
+  --secondary: hsl(210, 40%, 96%);
+  --secondary-foreground: hsl(215, 25%, 27%);
+  --accent: hsl(210, 40%, 96%);
+  --accent-foreground: hsl(215, 25%, 27%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(210, 20%, 98%);
+  --ring: hsl(210, 79%, 46%);
+  --radius: 0.5rem;
+  
+  /* Custom security theme colors */
+  --security-blue: hsl(207, 56%, 23%);
+  --alert-red: hsl(354, 70%, 54%);
+  --success-green: hsl(134, 61%, 41%);
+  --warning-yellow: hsl(45, 100%, 51%);
+  --bg-primary: hsl(210, 20%, 98%);
+  --text-primary: hsl(215, 25%, 27%);
+}
+
+.dark {
+  --background: hsl(215, 28%, 17%);
+  --foreground: hsl(210, 20%, 98%);
+  --muted: hsl(215, 28%, 17%);
+  --muted-foreground: hsl(217, 10%, 64%);
+  --popover: hsl(215, 28%, 17%);
+  --popover-foreground: hsl(210, 20%, 98%);
+  --card: hsl(215, 28%, 17%);
+  --card-foreground: hsl(210, 20%, 98%);
+  --border: hsl(215, 28%, 17%);
+  --input: hsl(215, 28%, 17%);
+  --primary: hsl(210, 79%, 46%);
+  --primary-foreground: hsl(210, 20%, 98%);
+  --secondary: hsl(215, 28%, 17%);
+  --secondary-foreground: hsl(210, 20%, 98%);
+  --accent: hsl(215, 28%, 17%);
+  --accent-foreground: hsl(210, 20%, 98%);
+  --destructive: hsl(0, 62%, 30%);
+  --destructive-foreground: hsl(210, 20%, 98%);
+  --ring: hsl(217, 10%, 64%);
+  
+  /* Custom dark security theme colors */
+  --security-blue: hsl(207, 56%, 23%);
+  --alert-red: hsl(354, 70%, 54%);
+  --success-green: hsl(134, 61%, 41%);
+  --warning-yellow: hsl(45, 100%, 51%);
+  --bg-primary: hsl(215, 28%, 17%);
+  --text-primary: hsl(210, 20%, 98%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: 'Source Sans Pro', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .text-security-blue {
+    color: var(--security-blue);
+  }
+  
+  .bg-security-blue {
+    background-color: var(--security-blue);
+  }
+  
+  .text-alert-red {
+    color: var(--alert-red);
+  }
+  
+  .bg-alert-red {
+    background-color: var(--alert-red);
+  }
+  
+  .text-success-green {
+    color: var(--success-green);
+  }
+  
+  .bg-success-green {
+    background-color: var(--success-green);
+  }
+  
+  .text-warning-yellow {
+    color: var(--warning-yellow);
+  }
+  
+  .bg-warning-yellow {
+    background-color: var(--warning-yellow);
+  }
+  
+  .border-security-blue {
+    border-color: var(--security-blue);
+  }
+  
+  .border-alert-red {
+    border-color: var(--alert-red);
+  }
+  
+  .border-success-green {
+    border-color: var(--success-green);
+  }
+  
+  .border-warning-yellow {
+    border-color: var(--warning-yellow);
+  }
+}
