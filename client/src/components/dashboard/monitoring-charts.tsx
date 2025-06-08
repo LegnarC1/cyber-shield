@@ -1,8 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { TrendingUp } from "lucide-react";
 import { SystemEvent } from "@shared/schema";
-import { formatTime } from "date-fns";
+import { format } from "date-fns";
 
 interface MonitoringChartsProps {
   events: SystemEvent[];
@@ -135,7 +136,7 @@ export default function MonitoringCharts({ events }: MonitoringChartsProps) {
                 <div className="flex-1">
                   <p className="text-sm font-medium">{event.message}</p>
                   <p className="text-xs text-gray-500">
-                    {formatTime(new Date(event.timestamp), 'HH:mm:ss')}
+                    {format(new Date(event.timestamp), 'HH:mm:ss')}
                   </p>
                 </div>
               </div>

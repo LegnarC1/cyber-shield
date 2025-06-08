@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { TrendingUp, Activity, Network, HardDrive, Cpu, MemoryStick } from "lucide-react";
 import { SystemEvent } from "@shared/schema";
-import { formatTime } from "date-fns";
+import { format } from "date-fns";
 import { useEffect, useState } from "react";
 
 export default function Monitoring() {
@@ -234,7 +234,7 @@ export default function Monitoring() {
                       <p className="text-sm font-medium">{event.message}</p>
                       <div className="flex items-center space-x-2 mt-1">
                         <span className="text-xs text-gray-500">
-                          {formatTime(new Date(event.timestamp), 'HH:mm:ss')}
+                          {format(new Date(event.timestamp), 'HH:mm:ss')}
                         </span>
                         <span className="text-xs bg-gray-200 px-2 py-1 rounded">
                           {event.type}
